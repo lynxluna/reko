@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.AspectRatio
@@ -22,13 +23,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.key
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
@@ -41,13 +38,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.ykode.reko.ui.theme.RekoTheme
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
 import java.io.File
 
 
@@ -71,8 +69,7 @@ fun MainContent(viewModel: MainViewModel) {
     if (!state.value.isCaptured) {
       Box(
         modifier = Modifier
-          .fillMaxWidth()
-          .aspectRatio(1f)
+          .fillMaxSize()
           .constrainAs(cameraPreviewRef) {
             top.linkTo(parent.top)
             bottom.linkTo(parent.bottom)
@@ -85,7 +82,6 @@ fun MainContent(viewModel: MainViewModel) {
           CameraPreviewContent(
             context = context,
             lifeCycleOwner = lifeCycleOwner,
-            viewModel = viewModel,
             imageCapture = imageCapture
           )
         }
@@ -144,32 +140,43 @@ fun MainContent(viewModel: MainViewModel) {
 }
 
 @Composable
-fun CameraPreviewContent(viewModel: MainViewModel,
-                         context: Context,
+fun CameraPreviewContent(context: Context,
                          lifeCycleOwner: LifecycleOwner,
                          imageCapture: ImageCapture) {
 
   val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
   val preview = androidx.camera.core.Preview.Builder().build()
 
-  val state = viewModel.state.collectAsState()
+  val cameraProvider = remember(cameraProviderFuture) {
+    mutableStateOf<ProcessCameraProvider?>(null)
+  }
 
   LaunchedEffect(Unit) {
-    val cameraProvider = withContext(Dispatchers.IO) {
+    val provider = withContext(Dispatchers.IO) {
       cameraProviderFuture.get()
     }
 
-    cameraProvider.unbindAll()
+    cameraProvider.value = provider
+
+    provider.unbindAll()
 
     val cameraSelector =
       CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
 
-    cameraProvider.bindToLifecycle(
+    provider.bindToLifecycle(
       lifeCycleOwner,
       cameraSelector,
       preview,
       imageCapture
     )
+  }
+
+  DisposableEffect(lifeCycleOwner) {
+    onDispose {
+      if (lifeCycleOwner.lifecycle.currentState == Lifecycle.State.CREATED) {
+        cameraProvider.value?.unbindAll()
+      }
+    }
   }
 
   AndroidView(factory = { ctx ->
@@ -331,6 +338,15 @@ class MainViewModel(context: Context): ViewModel() {
           val bitmap = BitmapFactory.decodeFile(savedUri.path)
 
           _state.value = _state.value.copy(capturedBitmap = bitmap, isLoading = false, isCaptured = true)
+
+          viewModelScope.launch(Dispatchers.IO) {
+            try {
+              val visionText = performOcr(context, savedUri)
+              _state.value = _state.value.copy(recognisedText = visionText.text)
+            } catch (e: Exception) {
+              Log.e("MLKit", "Failure processing Image", e)
+            }
+          }
         }
 
         override fun onError(exception: ImageCaptureException) {

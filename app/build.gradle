@@ -64,6 +64,12 @@ dependencies {
     // Compose Constraint For sliding
     implementation 'androidx.constraintlayout:constraintlayout-compose:1.0.1'
 
+    // For OCR
+    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:18.0.2'
+
+    // Coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.6.4'
+
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
