@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.maps.DistanceMatrixApi
 import com.google.maps.GeoApiContext
 import com.google.maps.model.DistanceMatrix
@@ -27,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.TimeZone
 
 class MainViewModel(context: Context): ViewModel() {
   data class State(
@@ -38,6 +41,7 @@ class MainViewModel(context: Context): ViewModel() {
     val recognisedText: String = "",
     val distanceText: String = "",
     val timeText: String = "",
+    val isPostingEnabled: Boolean = true,
   )
 
   private val _state = MutableStateFlow(State(
@@ -46,6 +50,18 @@ class MainViewModel(context: Context): ViewModel() {
   ))
 
   val state = _state.asStateFlow()
+
+  suspend fun saveStateToFirebase() {
+    val db = FirebaseFirestore.getInstance()
+    val stateData = hashMapOf(
+      "timestamp" to FieldValue.serverTimestamp(),
+      "timezone" to TimeZone.getDefault().id,
+      "recognisedText" to state.value.recognisedText,
+      "estTimeText" to state.value.timeText,
+      "estDistance" to state.value.distanceText
+    )
+    db.collection("reko").add(stateData).await()
+  }
 
   fun onPermissionResult(context: Context) {
     _state.value = State(
@@ -114,7 +130,7 @@ class MainViewModel(context: Context): ViewModel() {
     _state.value = _state.value.copy(timeText = newText)
   }
 
-  private suspend fun getDistanceAndTime(context: Context, origin: Location): Pair<String, String> {
+  private suspend fun getDistanceAndTime(origin: Location): Pair<String, String> {
     val destination = "Plaza Indonesia, Jakarta"
     val apiKey = BuildConfig.MAPS_API_KEY
     val geoApiContext = GeoApiContext.Builder()
@@ -142,7 +158,7 @@ class MainViewModel(context: Context): ViewModel() {
     }
 
     if (location != null) {
-      val (distance, time) = getDistanceAndTime(context, location)
+      val (distance, time) = getDistanceAndTime(location)
       _state.value = _state.value.copy(distanceText = distance, timeText = time)
     }
   }
@@ -159,6 +175,19 @@ class MainViewModel(context: Context): ViewModel() {
     } catch (e: Exception) {
       Log.e("LocationServices", "Failure to get location", e)
       null
+    }
+  }
+
+  fun postState() {
+    _state.value = _state.value.copy(isPostingEnabled = false)
+    viewModelScope.launch {
+      try {
+        saveStateToFirebase()
+      } catch (e: Exception) {
+        Log.e("FIREBASE", "Error Saving", e)
+      } finally {
+        _state.value = _state.value.copy(isPostingEnabled = true)
+      }
     }
   }
 }

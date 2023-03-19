@@ -10,11 +10,13 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.google.firebase.FirebaseApp
 import com.ykode.reko.ui.theme.RekoTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     val viewModel = MainViewModel(this)
+    FirebaseApp.initializeApp(this)
     super.onCreate(savedInstanceState)
     setContent {
       RekoTheme {

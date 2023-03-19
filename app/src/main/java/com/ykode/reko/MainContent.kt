@@ -207,10 +207,12 @@ fun CapturedContent(viewModel: MainViewModel) {
         Text(text = "Recapture")
       }
       Button(
-        onClick = {  },
+        onClick = {viewModel.postState()},
+
         modifier = Modifier
           .padding(16.dp)
-          .weight(1f)
+          .weight(1f),
+        enabled = state.value.isPostingEnabled
       ) {
         Text(text = "Post")
       }
