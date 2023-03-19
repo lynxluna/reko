@@ -2,17 +2,11 @@ package com.ykode.reko
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
-import android.util.Log
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.animateContentSize
@@ -40,13 +34,9 @@ import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.ykode.reko.ui.theme.RekoTheme
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 
 @Composable
@@ -118,7 +108,7 @@ fun MainContent(viewModel: MainViewModel) {
 
     } else {
       // If is not captured
-      CapturedContent(viewModel = viewModel, context = context)
+      CapturedContent(viewModel = viewModel)
     }
 
     // Permission box
@@ -187,7 +177,7 @@ fun CameraPreviewContent(context: Context,
 }
 
 @Composable
-fun CapturedContent(viewModel: MainViewModel, context: Context, modifier: Modifier = Modifier) {
+fun CapturedContent(viewModel: MainViewModel) {
   val state = viewModel.state.collectAsState()
   val screenHeight = LocalConfiguration.current.screenHeightDp.dp
   val scrollState = rememberScrollState()
@@ -205,31 +195,46 @@ fun CapturedContent(viewModel: MainViewModel, context: Context, modifier: Modifi
           .fillMaxWidth()
       )
     }
-    Button(
-      onClick = { viewModel.resetCapture() },
-      modifier = Modifier
-        .padding(16.dp)
-        .fillMaxWidth()
-    ) {
-      Text(text = "Capture Again")
+    Row(
+      modifier = Modifier.fillMaxWidth()
+    ){
+      Button(
+        onClick = { viewModel.resetCapture() },
+        modifier = Modifier
+          .padding(16.dp)
+          .weight(1f)
+      ) {
+        Text(text = "Recapture")
+      }
+      Button(
+        onClick = {  },
+        modifier = Modifier
+          .padding(16.dp)
+          .weight(1f)
+      ) {
+        Text(text = "Post")
+      }
     }
+
     TextField(
       modifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = 8.dp, vertical = 4.dp),
-      value = "88km" , onValueChange = {}, label = { Text(text = "Distance")})
+      value = state.value.distanceText , onValueChange = {viewModel.setDistanceText(it)}, label = { Text(text = "Distance")})
     TextField(
       modifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = 8.dp, vertical = 4.dp),
-      value = "2 Menit" , onValueChange = {}, label = { Text(text = "Estimated Time")})
+      value = state.value.timeText , onValueChange = {viewModel.setTimeText(it)}, label = { Text(text = "Estimated Time")})
+
     if (state.value.recognisedText.isNotEmpty()) {
       TextField(
         modifier = Modifier
           .fillMaxWidth()
           .padding(horizontal = 8.dp, vertical = 4.dp),
         value = state.value.recognisedText,
-        onValueChange = {}, maxLines = Int.MAX_VALUE,
+        onValueChange = {viewModel.setRecognisedText(it) },
+        maxLines = Int.MAX_VALUE,
         label = { Text(text = "Recognised Text") }
       )
     }
@@ -291,74 +296,5 @@ fun isPermissionGranted(context: Context, permission: String): Boolean {
   return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
-class MainViewModel(context: Context): ViewModel() {
-  data class State(
-    val cameraPermissionGranted: Boolean = false,
-    val locationPermissionGranted: Boolean = false,
-    val capturedBitmap: Bitmap? = null,
-    val isCaptured: Boolean = false,
-    val isLoading: Boolean = false,
-    val recognisedText: String = "",
-  )
 
-  private val _state = MutableStateFlow(State(
-    cameraPermissionGranted = isPermissionGranted(context, android.Manifest.permission.CAMERA),
-    locationPermissionGranted = isPermissionGranted(context, android.Manifest.permission.ACCESS_FINE_LOCATION),
-  ))
-
-  val state = _state.asStateFlow()
-
-  fun onPermissionResult(context: Context) {
-    _state.value = State(
-      cameraPermissionGranted = isPermissionGranted(context, android.Manifest.permission.CAMERA),
-      locationPermissionGranted = isPermissionGranted(context, android.Manifest.permission.ACCESS_FINE_LOCATION),
-    )
-  }
-
-  private fun getOutputDirectory(context: Context): File {
-    val mediaDir = File(context.filesDir, "cepeto").apply { mkdirs() }
-    return if (mediaDir.exists()) mediaDir else context.filesDir
-  }
-
-
-  fun captureImage(context: Context, imageCapture: ImageCapture) {
-    val outputDirectory = getOutputDirectory(context)
-    val file = File.createTempFile("cpt-img", ".jpg", outputDirectory)
-
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
-    val executor = ContextCompat.getMainExecutor(context)
-    _state.value = _state.value.copy(isLoading =  true)
-
-    imageCapture.takePicture(
-      outputOptions,
-      executor,
-      object: ImageCapture.OnImageSavedCallback {
-        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-          val savedUri = outputFileResults.savedUri ?: Uri.fromFile(file)
-          val bitmap = BitmapFactory.decodeFile(savedUri.path)
-
-          _state.value = _state.value.copy(capturedBitmap = bitmap, isLoading = false, isCaptured = true)
-
-          viewModelScope.launch(Dispatchers.IO) {
-            try {
-              val visionText = performOcr(context, savedUri)
-              _state.value = _state.value.copy(recognisedText = visionText.text)
-            } catch (e: Exception) {
-              Log.e("MLKit", "Failure processing Image", e)
-            }
-          }
-        }
-
-        override fun onError(exception: ImageCaptureException) {
-          _state.value = _state.value.copy(isLoading = false, capturedBitmap = null, isCaptured = false)
-          Log.e("CEPETO", "Failure capture", exception)
-        }
-      }
-    )
-  }
-
-  fun resetCapture() {
-    _state.value = _state.value.copy(isLoading = false, capturedBitmap = null, isCaptured = false)
-  }
-}
 
