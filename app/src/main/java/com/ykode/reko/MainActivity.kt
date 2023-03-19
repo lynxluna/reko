@@ -14,12 +14,13 @@ import com.ykode.reko.ui.theme.RekoTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    val viewModel = MainViewModel(this)
     super.onCreate(savedInstanceState)
     setContent {
       RekoTheme {
         // A surface container using the 'background' color from the theme
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
-          Greeting("Android")
+          MainContent(viewModel = viewModel)
         }
       }
     }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Reko</string>
+    <string name="ask_cam_permission">Ask Permission</string>
 </resources>
